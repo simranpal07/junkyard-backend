@@ -1,18 +1,15 @@
 {
   "compilerOptions": {
-    "target": "ES2017",                  
-    "module": "CommonJS",                
-    "lib": ["ES2017"],                    
-    "outDir": "./dist",                   
-    "rootDir": "./",                      
-    "strict": true,                       
-    "esModuleInterop": true,              
-    "allowSyntheticDefaultImports": true, 
-    "moduleResolution": "node",           
-    "resolveJsonModule": true,            
-    "skipLibCheck": true,                 
-    "forceConsistentCasingInFileNames": true
+    "target": "ES2020",
+    "module": "commonjs",
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node"
   },
-  "include": ["**/*.ts"],
+  "include": ["server.ts", "routes", "middleware", "services"],
   "exclude": ["node_modules", "dist"]
 }
