@@ -9,10 +9,28 @@ import cors from "cors";
 
 dotenv.config();
 const app = express();
-app.use(cors({
-  origin: "http://localhost:3000", // allow your frontend origin
-  credentials: true                // if you need to send cookies/auth headers
-}));
+
+const allowedOrigins = [
+  "http://localhost:3001", // Local frontend
+  "http://localhost:3000",
+  "https://junkyard-frontend-app.vercel.app", // ✅ Your live frontend
+  "https://junkyard-frontend-app-git-main-simranpal07s-projects.vercel.app", // ✅ Vercel preview
+];
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // ✅ Allow requests with no origin (like mobile apps, curl)
+      if (!origin) return callback(null, true);ß
+
+      if (allowedOrigins.indexOf(origin) === -1) {
+        const msg = "The CORS policy for this site does not allow access from the specified origin.";
+        return callback(new Error(msg), false);
+      }
+      return callback(null, true);
+    },
+    credentials: true, // If you're sending cookies or auth
+  })
+);
 
 app.use(express.json());
 
