@@ -28,4 +28,8 @@ model Part {
   createdAt   DateTime @default(now())
   inStock     Boolean  @default(true)   // ✅ New field added
   user        User     @relation(fields: [createdBy], references: [id])
+  category    String   @default("Engine")
+  carName     String   @default("")
+  model       String   @default("")
+  year        Int      @default(0)
 }
