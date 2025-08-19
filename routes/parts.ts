@@ -49,9 +49,8 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: "Failed to create part" });
   }
 });
-
-// GET /parts - Get all parts (now supports filtering)
-router.get("/", authenticateToken, async (req: Request, res: Response) => {
+// GET /parts - Get all parts (Public route)
+router.get("/", async (req: Request, res: Response) => {
   const { carName, model, year, category } = req.query;
 
   const where: any = {};
@@ -72,7 +71,6 @@ router.get("/", authenticateToken, async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to fetch parts" });
   }
 });
-
 // PUT /parts/:id - Update a part
 router.put("/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
