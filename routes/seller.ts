@@ -4,7 +4,8 @@ import { PrismaClient } from "@prisma/client";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+// ✅ New way (import the shared instance)
+import { prisma } from '../lib/prisma';
 
 // GET /seller/parts - Get only parts created by this seller
 router.get(

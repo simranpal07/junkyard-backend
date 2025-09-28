@@ -6,6 +6,7 @@ import partsRoutes from "./routes/parts"; // ✅ Import
 import sellerRoutes from "./routes/seller"; // ✅ Import seller routes
 import adminUserRoutes from "./routes/admin/users"; // ✅ Import seller routes
 import orderRoutes from "./routes/orders"; // ✅ Import order routes
+import adminOrdersRouter from './routes/admin/orders';
 import cors from "cors";
 
 dotenv.config();
@@ -42,6 +43,7 @@ app.use("/api/parts", partsRoutes); // ✅ Add parts route
 app.use("/api/seller", sellerRoutes); // ✅ Add parts route
 app.use("/api/admin/users", adminUserRoutes); // Placeholder for admin routes
 app.use("/api/orders", orderRoutes); // Add after auth, parts, etc.
+app.use("/api/admin/orders", adminOrdersRouter);
 
 // Test default route
 app.get("/", (req, res) => {

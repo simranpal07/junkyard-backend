@@ -4,8 +4,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const router = Router();
-const prisma = new PrismaClient();
-
+// ✅ New way (import the shared instance)
+import { prisma } from '../lib/prisma';
 const JWT_SECRET = "supersecretkey"; // Change this to something secure and store in .env
 
 // Register user

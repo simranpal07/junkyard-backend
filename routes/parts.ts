@@ -1,9 +1,9 @@
 import express, { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+// ✅ New way (import the shared instance)
+import { prisma } from '../lib/prisma';
 
 // POST /parts - Add a new part
 router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {

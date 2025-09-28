@@ -6,8 +6,8 @@ import bcrypt from "bcryptjs";
 
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
+// ✅ New way (import the shared instance)
+import { prisma } from '../../lib/prisma';
 /**
  * GET /admin/users
  * Get all users (Admin only)

@@ -3,9 +3,10 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
+import { prisma } from '../lib/prisma';
+
 
 const router = Router();
-const prisma = new PrismaClient();
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 if (!JWT_SECRET) {
