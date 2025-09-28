@@ -6,9 +6,15 @@ import { prisma } from '../lib/prisma';
 const router = Router();
 
 // POST /api/orders - Place new order
+// POST /api/orders - Place new order
 router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
-  const { items } = req.body; // array of { partId: number, quantity: number }
+  const { items } = (req as any).body;
   const userId = req.userId;
+
+  // ✅ ADD THIS CHECK: Ensure userId exists (should always be true due to middleware)
+  if (userId === undefined) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   // Validate input structure
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -22,10 +28,10 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
     const quantity = Number(item.quantity);
 
     if (!partId || isNaN(partId) || partId <= 0) {
-      continue; // skip invalid partId
+      continue;
     }
     if (!quantity || isNaN(quantity) || quantity <= 0) {
-      continue; // skip invalid quantity
+      continue;
     }
 
     validItems.push({ partId, quantity });
@@ -41,12 +47,12 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
     const existingParts = await prisma.part.findMany({
       where: { 
         id: { in: partIds },
-        inStock: true // Optional: only allow ordering in-stock parts
+        inStock: true
       },
       select: { id: true },
     });
 
-    const existingPartIds = new Set(existingParts.map(p => p.id));
+    const existingPartIds = new Set(existingParts.map((p:any) => p.id));
     const missingOrOutOfStock = partIds.filter(id => !existingPartIds.has(id));
 
     if (missingOrOutOfStock.length > 0) {
@@ -58,7 +64,7 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
     // ✅ Create order with nested order items
     const order = await prisma.order.create({
       data: {
-        userId,
+        userId, // ✅ Now TypeScript knows this is number (not number | undefined)
         status: "Placed",
         items: {
           create: validItems.map(({ partId, quantity }) => ({
@@ -85,6 +91,7 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ error: "Failed to place order" });
   }
 });
+
 
 // GET /api/orders - Get all orders for logged-in user
 router.get("/", authenticateToken, async (req: AuthRequest, res: Response) => {
