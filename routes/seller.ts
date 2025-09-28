@@ -1,3 +1,4 @@
+// routes/seller.ts
 import express, { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
@@ -21,10 +22,8 @@ router.get(
       });
       res.json(parts);
     } catch (error) {
-      res.status(500).json({
-        error: "Failed to fetch your parts",
-        details: error,
-      });
+      console.error("Failed to fetch parts:", error);
+      res.status(500).json({ error: "Failed to fetch your parts" });
     }
   }
 );
@@ -34,30 +33,45 @@ router.post(
   "/parts",
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
-    const { name, description, price, inStock } = req.body;
+    const { name, description, price, inStock, category, carName, model, year } = req.body;
 
-    if (!name || !price) {
+    // ✅ Validate required fields
+    if (!name || !price || !category || !carName || !model || !year) {
       return res.status(400).json({
-        error: "Name and price are required",
+        error:
+          "Name, price, category, carName, model, and year are required",
       });
+    }
+
+    const priceNum = parseFloat(price);
+    const yearNum = parseInt(year);
+
+    if (isNaN(priceNum) || priceNum <= 0) {
+      return res.status(400).json({ error: "Valid price is required" });
+    }
+
+    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1) {
+      return res.status(400).json({ error: "Valid year is required" });
     }
 
     try {
       const part = await prisma.part.create({
          data:{
           name,
-          description,
-          price: parseFloat(price),
+          description: description || "",
+          price: priceNum,
           inStock: inStock ?? true,
+          category,
+          carName,
+          model,
+          year: yearNum,
           createdBy: req.userId!, // Assigned to logged-in seller
         },
       });
       res.status(201).json(part);
-    } catch (error) {
-      res.status(500).json({
-        error: "Failed to add part",
-        details: error,
-      });
+    } catch (error: any) {
+      console.error("Failed to create part:", error);
+      res.status(500).json({ error: "Failed to add part" });
     }
   }
 );
@@ -68,12 +82,23 @@ router.put(
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
-    const { name, description, price, inStock } = req.body;
+    const { name, description, price, inStock, category, carName, model, year } = req.body;
 
-    if (!name || !price) {
+    if (!name || !price || !category || !carName || !model || !year) {
       return res.status(400).json({
-        error: "Name and price are required",
+        error: "Name, price, category, carName, model, and year are required",
       });
+    }
+
+    const priceNum = parseFloat(price);
+    const yearNum = parseInt(year);
+
+    if (isNaN(priceNum) || priceNum <= 0) {
+      return res.status(400).json({ error: "Valid price is required" });
+    }
+
+    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1) {
+      return res.status(400).json({ error: "Valid year is required" });
     }
 
     try {
@@ -96,21 +121,23 @@ router.put(
         where: { id: Number(id) },
          data:{
           name,
-          description,
-          price: parseFloat(price),
+          description: description || "",
+          price: priceNum,
           inStock: inStock ?? true,
+          category,
+          carName,
+          model,
+          year: yearNum,
         },
       });
 
       res.json(updatedPart);
-    } catch (error) {
-      if ((error as any).code === "P2025") {
+    } catch (error: any) {
+      if (error.code === "P2025") {
         return res.status(404).json({ error: "Part not found" });
       }
-      res.status(500).json({
-        error: "Failed to update part",
-        details: error,
-      });
+      console.error("Failed to update part:", error);
+      res.status(500).json({ error: "Failed to update part" });
     }
   }
 );

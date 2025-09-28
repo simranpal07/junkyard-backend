@@ -5,6 +5,7 @@ import protectedRoutes from "./routes/protected";
 import partsRoutes from "./routes/parts"; // ✅ Import
 import sellerRoutes from "./routes/seller"; // ✅ Import seller routes
 import adminUserRoutes from "./routes/admin/users"; // ✅ Import seller routes
+import orderRoutes from "./routes/orders"; // ✅ Import order routes
 import cors from "cors";
 
 dotenv.config();
@@ -40,6 +41,7 @@ app.use("/api/protected", protectedRoutes);
 app.use("/api/parts", partsRoutes); // ✅ Add parts route
 app.use("/api/seller", sellerRoutes); // ✅ Add parts route
 app.use("/api/admin/users", adminUserRoutes); // Placeholder for admin routes
+app.use("/api/orders", orderRoutes); // Add after auth, parts, etc.
 
 // Test default route
 app.get("/", (req, res) => {

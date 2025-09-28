@@ -17,6 +17,7 @@ model User {
   parts    Part[] // 👈 opposite relation
   createdAt DateTime @default(now())
   updatedAt DateTime? @updatedAt
+  orders   Order[]
 }
 
 model Part {
@@ -26,10 +27,24 @@ model Part {
   price       Float
   createdBy   Int
   createdAt   DateTime @default(now())
-  inStock     Boolean  @default(true)   // ✅ New field added
+  inStock     Boolean  @default(true)
   user        User     @relation(fields: [createdBy], references: [id])
   category    String   @default("Engine")
   carName     String   @default("")
   model       String   @default("")
   year        Int      @default(0)
+  orders      Order[] 
 }
+
+model Order {
+  id        Int      @id @default(autoincrement())
+  partId    Int
+  part      Part     @relation(fields: [partId], references: [id])
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])  // This side owns the relation
+  quantity  Int      @default(1)
+  status    String   @default("Placed")
+  createdAt DateTime @default(now())
+}
+
+
