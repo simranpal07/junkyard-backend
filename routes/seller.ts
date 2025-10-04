@@ -1,146 +1,127 @@
-// routes/seller.ts
-import express, { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import express, { Response } from "express";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
+import { authorizeRoles } from "../middleware/role";
+import { prisma } from "../lib/prisma";
 
 const router = express.Router();
-// ✅ New way (import the shared instance)
-import { prisma } from '../lib/prisma';
 
-// GET /seller/parts - Get only parts created by this seller
-router.get(
-  "/parts",
-  authenticateToken,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const parts = await prisma.part.findMany({
-        where: {
-          createdBy: req.userId!, // Only parts created by this user
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-      });
-      res.json(parts);
-    } catch (error) {
-      console.error("Failed to fetch parts:", error);
-      res.status(500).json({ error: "Failed to fetch your parts" });
-    }
+/**
+ * GET /seller/parts
+ * - Only seller/admin can view parts they created
+ */
+router.get("/parts", authenticateToken, authorizeRoles("seller", "admin"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parts = await prisma.part.findMany({
+      where: { createdBy: req.user!.id },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(parts);
+  } catch (err) {
+    console.error("❌ Failed to fetch seller parts:", err);
+    res.status(500).json({ error: "Failed to fetch parts", message: "Failed to fetch parts" });
   }
-);
+});
 
-// POST /seller/parts - Add a new part (owned by seller)
-router.post(
-  "/parts",
-  authenticateToken,
-  async (req: AuthRequest, res: Response) => {
-    const { name, description, price, inStock, category, carName, model, year } = req.body;
+/**
+ * POST /seller/parts
+ * - Only seller/admin can add parts
+ */
+router.post("/parts", authenticateToken, authorizeRoles("seller", "admin"), async (req: AuthRequest, res: Response) => {
+  const { name, description, price, inStock, category, carName, model, year } = req.body;
 
-    // ✅ Validate required fields
-    if (!name || !price || !category || !carName || !model || !year) {
-      return res.status(400).json({
-        error:
-          "Name, price, category, carName, model, and year are required",
-      });
-    }
-
-    const priceNum = parseFloat(price);
-    const yearNum = parseInt(year);
-
-    if (isNaN(priceNum) || priceNum <= 0) {
-      return res.status(400).json({ error: "Valid price is required" });
-    }
-
-    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1) {
-      return res.status(400).json({ error: "Valid year is required" });
-    }
-
-    try {
-      const part = await prisma.part.create({
-         data:{
-          name,
-          description: description || "",
-          price: priceNum,
-          inStock: inStock ?? true,
-          category,
-          carName,
-          model,
-          year: yearNum,
-          createdBy: req.userId!, // Assigned to logged-in seller
-        },
-      });
-      res.status(201).json(part);
-    } catch (error: any) {
-      console.error("Failed to create part:", error);
-      res.status(500).json({ error: "Failed to add part" });
-    }
+  if (!name || price === undefined || !category || !carName || !model || year === undefined) {
+    return res.status(400).json({ error: "Missing required fields", message: "Missing required fields" });
   }
-);
 
-// PUT /seller/parts/:id - Update own part
-router.put(
-  "/parts/:id",
-  authenticateToken,
-  async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    const { name, description, price, inStock, category, carName, model, year } = req.body;
+  const priceNum = Number(price);
+  const yearNum = Number(year);
 
-    if (!name || !price || !category || !carName || !model || !year) {
-      return res.status(400).json({
-        error: "Name, price, category, carName, model, and year are required",
-      });
-    }
-
-    const priceNum = parseFloat(price);
-    const yearNum = parseInt(year);
-
-    if (isNaN(priceNum) || priceNum <= 0) {
-      return res.status(400).json({ error: "Valid price is required" });
-    }
-
-    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1) {
-      return res.status(400).json({ error: "Valid year is required" });
-    }
-
-    try {
-      // Check if part exists and belongs to user
-      const part = await prisma.part.findUnique({
-        where: { id: Number(id) },
-      });
-
-      if (!part) {
-        return res.status(404).json({ error: "Part not found" });
-      }
-
-      if (part.createdBy !== req.userId) {
-        return res.status(403).json({
-          error: "You can only edit your own parts",
-        });
-      }
-
-      const updatedPart = await prisma.part.update({
-        where: { id: Number(id) },
-         data:{
-          name,
-          description: description || "",
-          price: priceNum,
-          inStock: inStock ?? true,
-          category,
-          carName,
-          model,
-          year: yearNum,
-        },
-      });
-
-      res.json(updatedPart);
-    } catch (error: any) {
-      if (error.code === "P2025") {
-        return res.status(404).json({ error: "Part not found" });
-      }
-      console.error("Failed to update part:", error);
-      res.status(500).json({ error: "Failed to update part" });
-    }
+  if (isNaN(priceNum) || priceNum <= 0) return res.status(400).json({ error: "Invalid price", message: "Invalid price" });
+  if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1) {
+    return res.status(400).json({ error: "Invalid year", message: "Invalid year" });
   }
-);
+
+  try {
+    const part = await prisma.part.create({
+      data: {
+        name,
+        description: description || "",
+        price: priceNum,
+        inStock: inStock ?? true,
+        category,
+        carName,
+        model,
+        year: yearNum,
+        createdBy: req.user!.id,
+      },
+    });
+    res.status(201).json(part);
+  } catch (err) {
+    console.error("❌ Failed to add part:", err);
+    res.status(500).json({ error: "Failed to add part", message: "Failed to add part" });
+  }
+});
+
+/**
+ * PUT /seller/parts/:id
+ * - Seller can only edit their own parts
+ * - Admin can edit any part
+ */
+router.put("/parts/:id", authenticateToken, authorizeRoles("seller", "admin"), async (req: AuthRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid part ID", message: "Invalid part ID" });
+
+  const { name, description, price, inStock, category, carName, model, year } = req.body;
+  const priceNum = Number(price);
+  const yearNum = Number(year);
+
+  if (!name || isNaN(priceNum) || isNaN(yearNum)) {
+    return res.status(400).json({ error: "Valid name, price, and year required", message: "Valid name, price, and year required" });
+  }
+
+  try {
+    const part = await prisma.part.findUnique({ where: { id } });
+    if (!part) return res.status(404).json({ error: "Part not found", message: "Part not found" });
+
+    if (req.user!.role === "seller" && part.createdBy !== req.user!.id) {
+      return res.status(403).json({ error: "You can only edit your own parts", message: "You can only edit your own parts" });
+    }
+
+    const updatedPart = await prisma.part.update({
+      where: { id },
+      data: { name, description, price: priceNum, inStock: inStock ?? true, category, carName, model, year: yearNum },
+    });
+
+    res.json(updatedPart);
+  } catch (err) {
+    console.error("❌ Failed to update part:", err);
+    res.status(500).json({ error: "Failed to update part", message: "Failed to update part" });
+  }
+});
+
+/**
+ * DELETE /seller/parts/:id
+ * - Seller can only delete their own parts
+ * - Admin can delete any
+ */
+router.delete("/parts/:id", authenticateToken, authorizeRoles("seller", "admin"), async (req: AuthRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid part ID", message: "Invalid part ID" });
+
+  try {
+    const part = await prisma.part.findUnique({ where: { id } });
+    if (!part) return res.status(404).json({ error: "Part not found", message: "Part not found" });
+
+    if (req.user!.role === "seller" && part.createdBy !== req.user!.id) {
+      return res.status(403).json({ error: "You can only delete your own parts", message: "You can only delete your own parts" });
+    }
+
+    await prisma.part.delete({ where: { id } });
+    res.json({ message: "Part deleted successfully" });
+  } catch (err) {
+    console.error("❌ Failed to delete part:", err);
+    res.status(500).json({ error: "Failed to delete part", message: "Failed to delete part" });
+  }
+});
 
 export default router;

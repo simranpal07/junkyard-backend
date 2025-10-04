@@ -1,5 +1,0 @@
--- AlterTable
-ALTER TABLE "public"."Part" ADD COLUMN     "carName" TEXT NOT NULL DEFAULT '',
-ADD COLUMN     "category" TEXT NOT NULL DEFAULT 'Engine',
-ADD COLUMN     "model" TEXT NOT NULL DEFAULT '',
-ADD COLUMN     "year" INTEGER NOT NULL DEFAULT 0;

@@ -1,67 +1,94 @@
-// routes/admin/orders.ts
+// src/routes/admin/orders.ts
 import { Router, Response } from "express";
 import { authenticateToken, AuthRequest } from "../../middleware/auth";
-import { prisma } from '../../lib/prisma';
+import { authorizeRoles } from "../../middleware/role";
+import { prisma } from "../../lib/prisma";
 
 const router = Router();
+const validStatuses = ["placed", "shipped", "cancelled"];
 
-// GET /api/admin/orders — Admin only
-router.get("/", authenticateToken, async (req: AuthRequest, res: Response) => {
-  // Optional: enforce admin role
-  if (req.role !== "Admin") {
-    return res.status(403).json({ error: "Access denied" });
-  }
-
+router.get("/", authenticateToken, authorizeRoles("admin"), async (_req: AuthRequest, res: Response) => {
   try {
     const orders = await prisma.order.findMany({
       include: {
-        user: { select: { id: true, name: true, email: true } },
-        items: { include: { part: true } },
+        user: { 
+          select: { 
+            id: true, 
+            name: true, 
+            email: true,
+            phoneNumber: true // Include customer phone number
+          } 
+        },
+        items: { 
+          include: { 
+            part: true 
+          } 
+        },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    // Add total to each order
-    const ordersWithTotal = orders.map(order => ({
-      ...order,
-      total: order.items.reduce((sum, item) => sum + item.part.price * item.quantity, 0),
-    }));
+    // Fetch seller details for each order
+    const ordersWithSellerDetails = await Promise.all(
+      orders.map(async (order: any) => {
+        const sellerIds = order.items.map((item: any) => item.part.createdBy);
+        const uniqueSellerIds = Array.from(new Set(sellerIds)) as string[]; // Explicitly type as string[]
 
-    return res.json(ordersWithTotal);
-  } catch (error: any) {
-    console.error("Failed to fetch admin orders:", error);
-    return res.status(500).json({ error: "Failed to fetch orders" });
+        const sellers = await prisma.user.findMany({
+          where: {
+            id: {
+              in: uniqueSellerIds,
+            },
+          },
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true, // Include seller phone number
+          },
+        });
+
+        const total = order.items.reduce((sum: any, it: any) => sum + (it.part?.price ?? 0) * it.quantity, 0);
+
+        return {
+          ...order,
+          total,
+          sellers, // Add seller information to the order
+        };
+      })
+    );
+
+    return res.json(ordersWithSellerDetails);
+  } catch (err) {
+    console.error("❌ Failed to fetch admin orders:", err);
+    return res.status(500).json({ error: "Failed to fetch orders", message: "Failed to fetch orders" });
   }
 });
 
-// PUT /api/admin/orders/:id/status — Update order status
-router.put("/:id/status", authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (req.role !== "Admin") {
-    return res.status(403).json({ error: "Access denied" });
-  }
+// update status (case-insensitive input)
+router.put("/:id/status", authenticateToken, authorizeRoles("admin"), async (req: AuthRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid order ID", message: "Invalid order ID" });
 
-  const { id } = req.params;
-  const { status } = req.body;
+  const status = (req.body.status || "").toString().toLowerCase();
+  if (!validStatuses.includes(status)) return res.status(400).json({ error: "Invalid status", message: "Invalid status" });
 
-  const validStatuses = ["Placed", "Shipped", "Cancelled"];
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: "Invalid status" });
-  }
+  // transform to Title Case to match your DB default ("Placed", "Shipped", ...)
+  const titleCase = status.charAt(0).toUpperCase() + status.slice(1);
 
   try {
-    const updatedOrder = await prisma.order.update({
-      where: { id: Number(id) },
-      data: { status },
+    const updated = await prisma.order.update({
+      where: { id },
+      data: { status: titleCase },
       include: {
         user: { select: { name: true, email: true } },
         items: { include: { part: true } },
       },
     });
 
-    return res.json(updatedOrder);
-  } catch (error: any) {
-    console.error("Failed to update order status:", error);
-    return res.status(500).json({ error: "Failed to update order" });
+    return res.json(updated);
+  } catch (err) {
+    console.error("❌ Failed to update order status:", err);
+    return res.status(500).json({ error: "Failed to update order", message: "Failed to update order" });
   }
 });
 

@@ -1,233 +1,93 @@
-// routes/admin/users.ts
+// src/routes/admin/users.ts
 import express from "express";
 import { authenticateToken, AuthRequest } from "../../middleware/auth";
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
-
+import { authorizeRoles } from "../../middleware/role";
+import { prisma } from "../../lib/prisma";
 
 const router = express.Router();
-// ✅ New way (import the shared instance)
-import { prisma } from '../../lib/prisma';
-/**
- * GET /admin/users
- * Get all users (Admin only)
- */
-router.get(
-  "/",
-  authenticateToken,
-  async (req: AuthRequest, res: express.Response) => {
-    // 🔐 Only Admin can access
-    if (req.role !== "Admin") {
-      return res.status(403).json({ message: "Access denied: Admins only" });
-    }
+const validRoles = ["admin", "seller", "customer"];
 
-    try {
-      const users = await prisma.user.findMany({
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: "desc" },
-      });
-
-      res.json(users);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-      res.status(500).json({ message: "Failed to fetch users" });
-    }
+router.get("/", authenticateToken, authorizeRoles("admin"), async (_req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return res.json(users);
+  } catch (err) {
+    console.error("❌ Failed to fetch users:", err);
+    return res.status(500).json({ message: "Failed to fetch users", error: "Failed to fetch users" });
   }
-);
+});
 
-/**
- * PUT /admin/users/:id
- * Update user role (Admin only)
- */
-router.put(
-  "/:id",
-  authenticateToken,
-  async (req: AuthRequest, res: express.Response) => {
-    if (req.role !== "Admin") {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    const { id } = req.params;
-    const targetId = Number(id);
-    const { role } = req.body;
-
-    // Validate role
-    if (!["customer", "Seller", "Admin"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
-    }
-
-    try {
-      // Fetch the user being updated
-      const userToEdit = await prisma.user.findUnique({
-        where: { id: targetId },
-      });
-
-      if (!userToEdit) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // 🔐 Prevent Admin from editing another Admin
-      if (userToEdit.role === "Admin" && req.userId !== targetId) {
-        return res.status(403).json({
-          message: "Permission denied: Cannot modify another Admin account",
-        });
-      }
-
-      // ✅ Allow self-edit (e.g. Admin updating their own info)
-      // But prevent self-demotion? Optional (see below)
-
-      const updatedUser = await prisma.user.update({
-        where: { id: targetId },
-         data:{
-          role,
-        },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          createdAt: true,
-        },
-      });
-
-      res.json(updatedUser);
-    } catch (error: any) {
-      if (error.code === "P2025") {
-        return res.status(404).json({ message: "User not found" });
-      }
-      res.status(500).json({ message: "Failed to update user" });
-    }
+router.put("/:id", authenticateToken, authorizeRoles("admin"), async (req: AuthRequest, res) => {
+  const targetId = req.params.id;
+  const { role } = req.body;
+  if (!role || !validRoles.includes(role.toString().toLowerCase())) {
+    return res.status(400).json({ message: "Invalid role", error: "Invalid role" });
   }
-);
-/**
- * DELETE /admin/users/:id
- * Delete a user (Admin only)
- */
-router.delete(
-  "/:id",
-  authenticateToken,
-  async (req: AuthRequest, res: express.Response) => {
-    if (req.role !== "Admin") {
-      return res.status(403).json({ message: "Access denied" });
+
+  try {
+    const userToEdit = await prisma.user.findUnique({ where: { id: targetId } });
+    if (!userToEdit) return res.status(404).json({ message: "User not found", error: "User not found" });
+
+    // If target is another admin, prevent changing them
+    if (userToEdit.role?.toLowerCase() === "admin" && req.user!.id !== targetId) {
+      return res.status(403).json({ message: "Cannot modify another Admin account", error: "Cannot modify another Admin account" });
     }
 
-    const { id } = req.params;
-    const targetId = Number(id);
+    const updated = await prisma.user.update({
+      where: { id: targetId },
+      data: { role: role.toString().toLowerCase() },
+      select: { id: true, name: true, email: true, role: true, createdAt: true },
+    });
 
-    try {
-      const userToDelete = await prisma.user.findUnique({
-        where: { id: targetId },
-      });
-
-      if (!userToDelete) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // 🔐 Prevent deletion of another Admin
-      if (userToDelete.role === "Admin") {
-        return res.status(403).json({
-          message: "Permission denied: Cannot delete Admin accounts",
-        });
-      }
-
-      await prisma.user.delete({
-        where: { id: targetId },
-      });
-
-      res.json({ message: "User deleted successfully" });
-    } catch (error: any) {
-      if (error.code === "P2025") {
-        return res.status(404).json({ message: "User not found" });
-      }
-      res.status(500).json({ message: "Failed to delete user" });
-    }
+    return res.json(updated);
+  } catch (err) {
+    console.error("❌ Failed to update user:", err);
+    return res.status(500).json({ message: "Failed to update user", error: "Failed to update user" });
   }
-);
-/**
- * POST /admin/users
- * Create a new user (Admin only)
- * Admin sets: name, email, role
- * Password is auto-generated or set by email link
- */
-router.post(
-  "/",
-  authenticateToken,
-  async (req: AuthRequest, res: express.Response) => {
-    if (req.role !== "Admin") {
-      return res.status(403).json({ message: "Access denied: Admins only" });
+});
+
+router.delete("/:id", authenticateToken, authorizeRoles("admin"), async (req: AuthRequest, res) => {
+  const targetId = req.params.id;
+  try {
+    const userToDelete = await prisma.user.findUnique({ where: { id: targetId } });
+    if (!userToDelete) return res.status(404).json({ message: "User not found", error: "User not found" });
+
+    if (userToDelete.role?.toLowerCase() === "admin") {
+      return res.status(403).json({ message: "Cannot delete Admin accounts", error: "Cannot delete Admin accounts" });
     }
 
-    const { name, email, role } = req.body;
-
-    // Validate required fields
-    if (!name || !email || !role) {
-      return res.status(400).json({ message: "Name, email, and role are required" });
-    }
-
-    // Validate role
-    if (!["customer", "Seller", "Admin"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
-    }
-
-    // Validate email format
-    const emailRegex = /\S+@\S+\.\S+/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: "Invalid email format" });
-    }
-
-    try {
-      // Check if user already exists
-      const existing = await prisma.user.findUnique({
-        where: { email },
-      });
-
-      if (existing) {
-        return res.status(400).json({ message: "User with this email already exists" });
-      }
-
-      // 🛑 Important: We cannot set a plaintext password here
-      // Instead, we:
-      // 1. Set a temporary password (hashed), or
-      // 2. Force password reset on first login
-
-      const tempPassword = Math.random().toString(36).slice(-8); // 8-char random string
-      const hashedPassword = await bcrypt.hash(tempPassword, 10);
-
-      const newUser = await prisma.user.create({
-         data:{
-          name,
-          email,
-          password: hashedPassword,
-          role,
-        },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          createdAt: true,
-        },
-      });
-
-      // 📧 Optional: Send welcome email with temp password or reset link
-      // await sendEmail({
-      //   to: email,
-      //   subject: "Welcome to Junkyard App",
-      //   text: `Hello ${name}, your account has been created. Temporary password: ${tempPassword}`,
-      // });
-
-      res.status(201).json(newUser);
-    } catch (error: any) {
-      console.error("Error creating user:", error);
-      res.status(500).json({ message: "Failed to create user" });
-    }
+    await prisma.user.delete({ where: { id: targetId } });
+    return res.json({ message: "User deleted successfully" });
+  } catch (err) {
+    console.error("❌ Failed to delete user:", err);
+    return res.status(500).json({ message: "Failed to delete user", error: "Failed to delete user" });
   }
-);
+});
+
+router.post("/", authenticateToken, authorizeRoles("admin"), async (req: AuthRequest, res) => {
+  const { name, email, role } = req.body;
+  if (!name || !email || !role) return res.status(400).json({ message: "Required fields missing", error: "Required fields missing" });
+
+  const roleLower = role.toString().toLowerCase();
+  if (!validRoles.includes(roleLower)) return res.status(400).json({ message: "Invalid role", error: "Invalid role" });
+
+  try {
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(400).json({ message: "User with this email already exists", error: "User exists" });
+
+    const created = await prisma.user.create({
+      data: { name, email, role: roleLower },
+      select: { id: true, name: true, email: true, role: true, createdAt: true },
+    });
+
+    return res.status(201).json(created);
+  } catch (err) {
+    console.error("❌ Failed to create user:", err);
+    return res.status(500).json({ message: "Failed to create user", error: "Failed to create user" });
+  }
+});
 
 export default router;

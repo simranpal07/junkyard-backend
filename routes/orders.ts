@@ -1,120 +1,81 @@
-// routes/orders.ts
-import { Router, Response } from "express";
+// src/routes/order.ts
+import { Router, Request, Response } from "express";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
-import { prisma } from '../lib/prisma';
+import { prisma } from "../lib/prisma";
 
 const router = Router();
 
-// POST /api/orders - Place new order
-// POST /api/orders - Place new order
+// POST /orders - Place a new order
 router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
-  const { items } = (req as any).body;
-  const userId = req.userId;
+  const { items, address, phoneNumber } = req.body;
 
-  // ✅ ADD THIS CHECK: Ensure userId exists (should always be true due to middleware)
-  if (userId === undefined) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  // Validate input structure
   if (!items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "Items array is required" });
+    return res.status(400).json({ message: "Invalid order items" });
   }
 
-  // Parse and validate each item
-  const validItems = [];
-  for (const item of items) {
-    const partId = Number(item.partId);
-    const quantity = Number(item.quantity);
-
-    if (!partId || isNaN(partId) || partId <= 0) {
-      continue;
-    }
-    if (!quantity || isNaN(quantity) || quantity <= 0) {
-      continue;
-    }
-
-    validItems.push({ partId, quantity });
+  if (!address || typeof address !== "string") {
+    return res.status(400).json({ message: "Invalid delivery address" });
   }
 
-  if (validItems.length === 0) {
-    return res.status(400).json({ error: "No valid items provided" });
+  // Validate phone number format (e.g., 10 digits for Indian phone numbers)
+  const phoneRegex = /^\d{10}$/;
+  if (!phoneRegex.test(phoneNumber)) {
+    return res.status(400).json({ message: "Invalid phone number" });
   }
 
   try {
-    // 🔍 Check if all parts exist
-    const partIds = validItems.map(i => i.partId);
-    const existingParts = await prisma.part.findMany({
-      where: { 
-        id: { in: partIds },
-        inStock: true
-      },
-      select: { id: true },
-    });
+    if (!req.user) return res.status(401).json({ message: "User not authenticated" });
 
-    const existingPartIds = new Set(existingParts.map((p:any) => p.id));
-    const missingOrOutOfStock = partIds.filter(id => !existingPartIds.has(id));
-
-    if (missingOrOutOfStock.length > 0) {
-      return res.status(400).json({
-        error: `One or more parts are not available: IDs ${missingOrOutOfStock.join(', ')}`,
-      });
-    }
-
-    // ✅ Create order with nested order items
-    const order = await prisma.order.create({
+    // Create a new order
+    const newOrder = await prisma.order.create({
       data: {
-        userId, // ✅ Now TypeScript knows this is number (not number | undefined)
+        userId: req.user.id,
         status: "Placed",
+        address,
+        phoneNumber,
         items: {
-          create: validItems.map(({ partId, quantity }) => ({
-            part: { connect: { id: partId } },
-            quantity,
+          create: items.map((item: any) => ({
+            partId: item.partId,
+            quantity: item.quantity,
           })),
         },
       },
       include: {
         items: {
-          include: { part: true },
-        },
-        user: {
-          select: { id: true, name: true, email: true },
+          include: {
+            part: true,
+          },
         },
       },
     });
 
-    console.log(`🔔 New order from user ${userId}`, order);
-    return res.status(201).json(order);
-
-  } catch (error: any) {
-    console.error("Failed to place order:", error);
-    return res.status(500).json({ error: "Failed to place order" });
+    return res.json({ message: "Order placed successfully", order: newOrder });
+  } catch (err) {
+    console.error("❌ Error placing order:", err);
+    return res.status(500).json({ message: "Failed to place order" });
   }
 });
 
-
-// GET /api/orders - Get all orders for logged-in user
+// GET /orders - Fetch all orders for a user
 router.get("/", authenticateToken, async (req: AuthRequest, res: Response) => {
-  const userId = req.userId;
-
   try {
+    if (!req.user) return res.status(401).json({ message: "User not authenticated" });
+
     const orders = await prisma.order.findMany({
-      where: { userId },
+      where: { userId: req.user.id },
       include: {
         items: {
-          include: { part: true },
-        },
-        user: {
-          select: { id: true, name: true, email: true },
+          include: {
+            part: true,
+          },
         },
       },
-      orderBy: { createdAt: "desc" },
     });
 
     return res.json(orders);
-  } catch (error: any) {
-    console.error("❌ Failed to fetch orders:", error);
-    return res.status(500).json({ error: "Failed to fetch orders" });
+  } catch (err) {
+    console.error("❌ Error fetching orders:", err);
+    return res.status(500).json({ message: "Failed to fetch orders" });
   }
 });
 

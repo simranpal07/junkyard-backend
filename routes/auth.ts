@@ -1,24 +1,17 @@
+// routes/auth.ts
 import { Router, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
-import { prisma } from '../lib/prisma';
-
+import { prisma } from "../lib/prisma";
 
 const router = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET not set in environment variables");
-}
-
 // POST /api/auth/register
+// Note: Since password no longer exists, we just register user info
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, role } = req.body;
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !role) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
@@ -31,10 +24,8 @@ router.post("/register", async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Email already registered" });
     }
 
-    const hash = await bcrypt.hash(password, 10);
-
     const user = await prisma.user.create({
-      data: { name, email, password: hash, role },
+      data: { name, email, role },
       select: { id: true, name: true, email: true, role: true },
     });
 
@@ -46,26 +37,17 @@ router.post("/register", async (req: Request, res: Response) => {
 });
 
 // POST /api/auth/login
+// For now, login will just return user info (no password check)
 router.post("/login", async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password)
-      return res.status(400).json({ message: "Email and password are required" });
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user)
-      return res.status(400).json({ message: "Invalid email or password" });
-
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok)
-      return res.status(400).json({ message: "Invalid email or password" });
-
-    const payload = { id: user.id, role: user.role, email: user.email, name: user.name };
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "1d" });
+    if (!user) return res.status(400).json({ message: "Invalid email" });
 
     return res.json({
       message: "Login successful",
-      token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
   } catch (err) {
@@ -75,22 +57,16 @@ router.post("/login", async (req: Request, res: Response) => {
 });
 
 // GET /api/auth/me - Get current user info
-// routes/auth.ts
-router.get("/me", authenticateToken, async (req: Request, res: Response) => {
+router.get("/me", authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user) return res.status(401).json({ message: "User not authenticated" });
+
     const user = await prisma.user.findUnique({
-      where: { id: (req as AuthRequest).userId! },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-      },
+      where: { id: req.user.id },
+      select: { id: true, name: true, email: true, role: true },
     });
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (!user) return res.status(404).json({ message: "User not found" });
 
     return res.json(user);
   } catch (err) {

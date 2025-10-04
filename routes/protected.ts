@@ -1,48 +1,34 @@
-// routes/protected.ts
 import express from "express";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
+import { authorizeRoles } from "../middleware/role";
 
 const router = express.Router();
 
 /**
- * Role-based authorization middleware
+ * Generic protected endpoint for any authenticated user
  */
-const authorizeRoles = (roles: string[]) => {
-  return (req: AuthRequest, res: express.Response, next: express.NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Forbidden: insufficient permissions" });
-    }
-    next();
-  };
-};
-
-// Accessible by any logged-in user
-// Accessible by any logged-in user
 router.get("/user", authenticateToken, (req: AuthRequest, res) => {
   if (!req.user) {
-    return res.status(401).json({ message: "User not authenticated" });
+    return res.status(401).json({ error: "User not authenticated", message: "User not authenticated" });
   }
-
-  // ✅ Now TypeScript knows `req.user` is defined
   res.json({
-    message: `Hello User!`,
-    userId: req.user.id,
-    role: req.user.role,
-    email: req.user.email,
-    name: req.user.name,
+    message: "Hello User!",
+    user: { id: req.user.id, email: req.user.email, role: req.user.role },
   });
 });
 
-// Only for mechanics
-router.get("/seller", authenticateToken, authorizeRoles(["Seller"]), (req: AuthRequest, res) => {
-  const user = req.user;
-  res.json({ message: `Hello Mechanic!`, user: req.user });
+/**
+ * Only sellers can access
+ */
+router.get("/seller", authenticateToken, authorizeRoles("seller"), (req: AuthRequest, res) => {
+  res.json({ message: "Hello Seller!", user: req.user });
 });
 
-// Only for admins
-router.get("/admin", authenticateToken, authorizeRoles(["Admin"]), (req: AuthRequest, res) => {
-  const user = req.user;
-  res.json({ message: `Hello Admin!`, user: req.user });
+/**
+ * Only admins can access
+ */
+router.get("/admin", authenticateToken, authorizeRoles("admin"), (req: AuthRequest, res) => {
+  res.json({ message: "Hello Admin!", user: req.user });
 });
 
 export default router;

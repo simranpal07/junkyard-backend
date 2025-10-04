@@ -1,58 +1,113 @@
-import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+// src/routes/user.ts
+import { Router, Request, Response } from "express";
+import { authenticateToken, AuthRequest } from "../middleware/auth";
+import { prisma } from "../lib/prisma";
 
 const router = Router();
-// ✅ New way (import the shared instance)
-import { prisma } from '../lib/prisma';
-const JWT_SECRET = "supersecretkey"; // Change this to something secure and store in .env
 
-// Register user
-router.post("/register", async (req, res) => {
-  const { name, email, password, role } = req.body;
-  console.log("Registering user:", { name, email, role });
-
+// GET /api/auth/me
+router.get("/me", authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
-    }
+    if (!req.user) return res.status(401).json({ message: "User not authenticated" });
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
-    const user = await prisma.user.create({
-      data: { name, email, password: hashedPassword, role },
+    const dbUser = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, name: true, email: true, role: true, phoneNumber: true },
     });
 
-    res.json({ message: "User registered successfully", user });
-  } catch (error) {
-    res.status(500).json({ message: "Something went wrong", error });
+    if (!dbUser) return res.status(404).json({ message: "User not found in database" });
+
+    return res.json({ user: dbUser });
+  } catch (err) {
+    console.error("❌ Error fetching user from DB:", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 });
 
-// Login user
-router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+// POST /user/save-phone-and-address - Save phone number and address together
+router.post("/save-phone-and-address", authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { phoneNumber, address } = req.body;
+
+  if (!phoneNumber || typeof phoneNumber !== "string") {
+    return res.status(400).json({ message: "Invalid phone number" });
+  }
+
+  if (!address || typeof address !== "string") {
+    return res.status(400).json({ message: "Invalid address" });
+  }
 
   try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!req.user) return res.status(401).json({ message: "User not authenticated" });
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) return res.status(401).json({ message: "Invalid credentials" });
-
-    // Generate token
-    const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
-      expiresIn: "1d",
+    // Check if the user already has 4 addresses
+    const addressCount = await prisma.address.count({
+      where: { userId: req.user.id },
     });
 
-    res.json({ message: "Login successful", token });
-  } catch (error) {
-    res.status(500).json({ message: "Something went wrong", error });
+    if (addressCount >= 4) {
+      return res.status(400).json({ message: "You can only save up to 4 addresses" });
+    }
+
+    // Update phone number
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { phoneNumber },
+    });
+
+    // Create a new address
+    const newAddress = await prisma.address.create({
+      data: {
+        userId: req.user.id,
+        address,
+      },
+    });
+
+    return res.json({
+      message: "Phone number and address saved successfully",
+      user: updatedUser,
+      address: newAddress,
+    });
+  } catch (err) {
+    console.error("❌ Error saving phone number and address:", err);
+    return res.status(500).json({ message: "Failed to save phone number and address" });
+  }
+});
+
+// DELETE /user/delete-address/:id - Delete a saved address
+router.delete("/delete-address/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    if (!req.user) return res.status(401).json({ message: "User not authenticated" });
+
+    const deletedAddress = await prisma.address.delete({
+      where: { id: parseInt(id), userId: req.user.id },
+    });
+
+    if (!deletedAddress) {
+      return res.status(404).json({ message: "Address not found" });
+    }
+
+    return res.json({ message: "Address deleted successfully", address: deletedAddress });
+  } catch (err) {
+    console.error("❌ Error deleting address:", err);
+    return res.status(500).json({ message: "Failed to delete address" });
+  }
+});
+
+// GET /user/addresses - Fetch all saved addresses for a user
+router.get("/addresses", authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: "User not authenticated" });
+
+    const addresses = await prisma.address.findMany({
+      where: { userId: req.user.id },
+    });
+
+    return res.json({ addresses });
+  } catch (err) {
+    console.error("❌ Error fetching addresses:", err);
+    return res.status(500).json({ message: "Failed to fetch addresses" });
   }
 });
 

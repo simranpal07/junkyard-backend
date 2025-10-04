@@ -8,41 +8,44 @@ datasource db {
 }
 
 model User {
-  id       Int    @id @default(autoincrement())
-  name     String
-  email    String @unique
-  password String
-  role     String
-
-  parts     Part[] // 👈 opposite relation
-  createdAt DateTime  @default(now())
+  id        String   @id @default(uuid())   // ✅ simpler
+  name      String
+  email     String   @unique
+  role      String
+  createdAt DateTime @default(now())
   updatedAt DateTime? @updatedAt
-  orders    Order[]
+   phoneNumber String?
+  addresses   Address[]
+
+  parts   Part[]
+  orders  Order[]
 }
 
 model Part {
-  id          Int         @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String
   description String?
   price       Float
-  createdBy   Int
-  createdAt   DateTime    @default(now())
-  inStock     Boolean     @default(true)
-  user        User        @relation(fields: [createdBy], references: [id])
-  category    String      @default("Engine")
-  carName     String      @default("")
-  model       String      @default("")
-  year        Int         @default(0)
+  createdBy   String   // just String is fine
+  createdAt   DateTime @default(now())
+  inStock     Boolean  @default(true)
+  user        User     @relation(fields: [createdBy], references: [id])
+  category    String   @default("Engine")
+  carName     String   @default("")
+  model       String   @default("")
+  year        Int      @default(0)
   orderItems  OrderItem[]
 }
 
 model Order {
-  id        Int         @id @default(autoincrement())
-  userId    Int
-  user      User        @relation(fields: [userId], references: [id])
-  status    String      @default("Placed")
-  createdAt DateTime    @default(now())
-  items     OrderItem[] // ← link to multiple parts
+  id        Int       @id @default(autoincrement())
+  userId    String    // just String is fine
+  user      User      @relation(fields: [userId], references: [id])
+  status    String    @default("Placed")
+  createdAt DateTime  @default(now())
+  items     OrderItem[]
+  address      String?
+  phoneNumber  String?
 }
 
 model OrderItem {
@@ -52,4 +55,12 @@ model OrderItem {
   partId   Int
   part     Part  @relation(fields: [partId], references: [id])
   quantity Int   @default(1)
+}
+
+model Address {
+  id        Int      @id @default(autoincrement())
+  userId    String   // References the user
+  user      User     @relation(fields: [userId], references: [id])
+  address   String
+  createdAt DateTime @default(now())
 }

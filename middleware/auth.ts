@@ -1,66 +1,64 @@
-// middleware/auth.ts
+// src/middleware/auth.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
 
-dotenv.config();
-
-const JWT_SECRET = process.env.JWT_SECRET as string;
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET not set in environment variables");
+interface SupabaseJwtPayload {
+  sub: string; // user id (UUID)
+  email?: string;
+  iss?: string;
+  exp?: number;
+  iat?: number;
+  [key: string]: any;
 }
 
-// Define payload structure
-interface JwtPayload {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
-}
-
-// Extend Express Request
 export interface AuthRequest extends Request {
-  userId?: number;
-  role?: string;
-  user?: JwtPayload; // ✅ Now we'll actually use it
+  user?: {
+    id: string;
+    email?: string;
+    role?: string; // optionally filled later
+  };
 }
 
-export const authenticateToken = (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) => {
+const apiError = (res: Response, status: number, message: string) =>
+  res.status(status).json({ error: message, message });
+
+export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers["authorization"];
+  const token = authHeader?.split(" ")[1];
 
-  if (!authHeader) {
-    return res.status(401).json({ message: "Authorization header missing" });
+  if (!token) return apiError(res, 401, "No token provided");
+
+  const secret = process.env.SUPABASE_JWT_SECRET;
+  if (!secret || !process.env.SUPABASE_PROJECT_REF) {
+    console.error("Missing required environment variables: SUPABASE_JWT_SECRET or SUPABASE_PROJECT_REF");
+    return apiError(res, 500, "Server misconfiguration");
   }
-
-  const parts = authHeader.split(" ");
-  if (parts.length !== 2 || parts[0] !== "Bearer") {
-    return res.status(401).json({ message: "Invalid Authorization header format" });
-  }
-
-  const token = parts[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-
-    // ✅ Assign all values
-    req.userId = decoded.id;
-    req.role = decoded.role;
-    req.user = decoded; // ✅ Now req.user is available in routes
-
-    console.log("Authenticated user:", { userId: req.userId, role: req.role });
-
-    next();
-  } catch (err: any) {
-    console.error("JWT verification error:", err.message);
-
-    if (err.name === "TokenExpiredError") {
-      return res.status(403).json({ message: "Token expired" });
+    const decoded = jwt.verify(token, secret) as SupabaseJwtPayload;
+    if (decoded.exp && Date.now() >= decoded.exp * 1000) {
+      return apiError(res, 403, "Token expired");
     }
 
-    return res.status(403).json({ message: "Invalid or expired token" });
+    const expectedBase = `https://${process.env.SUPABASE_PROJECT_REF}.supabase.co`;
+    if (!decoded.iss || !decoded.iss.startsWith(expectedBase)) {
+      console.error("Invalid token issuer:", decoded.iss);
+      return apiError(res, 401, "Invalid token issuer");
+    }
+
+    if (!decoded.sub) {
+      return apiError(res, 401, "Invalid token payload");
+    }
+
+    // Attach minimal auth info; role will be resolved from DB when needed
+    req.user = { id: decoded.sub, email: decoded.email };
+    if (process.env.NODE_ENV !== "production") {
+      console.log("✅ Authenticated user id:", decoded.sub, "email:", decoded.email);
+    }
+    next();
+  } catch (err: any) {
+    console.error("JWT verify error:", err?.name, err?.message);
+    if (err.name === "TokenExpiredError") return apiError(res, 403, "Token expired");
+    return apiError(res, 401, "Invalid token");
   }
 };
