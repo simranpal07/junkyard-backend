@@ -95,7 +95,6 @@ router.delete("/delete-address/:id", authenticateToken, async (req: AuthRequest,
   }
 });
 
-// GET /user/addresses - Fetch all saved addresses for a user
 router.get("/addresses", authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: "User not authenticated" });
@@ -104,7 +103,19 @@ router.get("/addresses", authenticateToken, async (req: AuthRequest, res: Respon
       where: { userId: req.user.id },
     });
 
-    return res.json({ addresses });
+    // Get user's phone number to attach to each address
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { phoneNumber: true },
+    });
+
+    // Attach phone number to each address
+    const addressesWithPhone = addresses.map(addr => ({
+      ...addr,
+      phoneNumber: user?.phoneNumber || null
+    }));
+
+    return res.json({ addresses: addressesWithPhone });
   } catch (err) {
     console.error("❌ Error fetching addresses:", err);
     return res.status(500).json({ message: "Failed to fetch addresses" });
