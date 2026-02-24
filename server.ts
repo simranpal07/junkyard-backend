@@ -42,7 +42,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);           
 app.use("/api/protected", protectedRoutes);
 app.use("/api/parts", partsRoutes); // ✅ Add parts route
-app.use("/api/seller", sellerRoutes); // ✅ Add parts route
+app.use("/api/seller", sellerRoutes); 
 app.use("/api/admin/users", adminUserRoutes); // Placeholder for admin routes
 app.use("/api/orders", orderRoutes); // Add after auth, parts, etc.
 app.use("/api/admin/orders", adminOrdersRouter);
