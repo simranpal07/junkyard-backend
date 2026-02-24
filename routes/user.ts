@@ -10,10 +10,17 @@ router.get("/me", authenticateToken, async (req: AuthRequest, res: Response) => 
   try {
     if (!req.user) return res.status(401).json({ message: "User not authenticated" });
 
-    const dbUser = await prisma.user.findUnique({
+    // Look up by Supabase id first; if not found (legacy users created with backend UUID), try by email
+    let dbUser = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: { id: true, name: true, email: true, role: true, phoneNumber: true },
     });
+    if (!dbUser && req.user.email) {
+      dbUser = await prisma.user.findUnique({
+        where: { email: req.user.email },
+        select: { id: true, name: true, email: true, role: true, phoneNumber: true },
+      });
+    }
 
     if (!dbUser) return res.status(404).json({ message: "User not found in database" });
 

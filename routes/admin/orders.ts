@@ -5,57 +5,67 @@ import { authorizeRoles } from "../../middleware/role";
 import { prisma } from "../../lib/prisma";
 
 const router = Router();
-const validStatuses = ["placed", "shipped", "cancelled"];
+const validStatuses = ["placed", "shipped", "delivered", "cancelled"];
 
 router.get("/", authenticateToken, authorizeRoles("admin"), async (_req: AuthRequest, res: Response) => {
   try {
     const orders = await prisma.order.findMany({
       include: {
-        user: { 
-          select: { 
-            id: true, 
-            name: true, 
+        user: {
+          select: {
+            id: true,
+            name: true,
             email: true,
-            phoneNumber: true // Include customer phone number
-          } 
+            phoneNumber: true, // Include customer phone number
+          },
         },
-        items: { 
-          include: { 
-            part: true 
-          } 
+        items: {
+          include: {
+            part: true,
+          },
         },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    // Fetch seller details for each order
-    const ordersWithSellerDetails = await Promise.all(
-      orders.map(async (order: any) => {
-        const sellerIds = order.items.map((item: any) => item.part.createdBy);
-        const uniqueSellerIds = Array.from(new Set(sellerIds)) as string[]; // Explicitly type as string[]
+    // Collect all unique seller ids across all orders
+    const allSellerIds = Array.from(
+      new Set(
+        orders.flatMap((order: any) =>
+          order.items.map((item: any) => item.part?.createdBy).filter(Boolean)
+        )
+      )
+    ) as string[];
 
-        const sellers = await prisma.user.findMany({
-          where: {
-            id: {
-              in: uniqueSellerIds,
-            },
-          },
-          select: {
-            id: true,
-            name: true,
-            phoneNumber: true, // Include seller phone number
-          },
-        });
+    const sellers = allSellerIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: allSellerIds } },
+          select: { id: true, name: true, phoneNumber: true },
+        })
+      : [];
 
-        const total = order.items.reduce((sum: any, it: any) => sum + (it.part?.price ?? 0) * it.quantity, 0);
+    const sellersById = new Map<string, { id: string; name: string; phoneNumber: string | null }>();
+    sellers.forEach((s) => sellersById.set(s.id, s));
 
-        return {
-          ...order,
-          total,
-          sellers, // Add seller information to the order
-        };
-      })
-    );
+    const ordersWithSellerDetails = orders.map((order: any) => {
+      const sellerIds = order.items.map((item: any) => item.part?.createdBy).filter(Boolean);
+      const uniqueSellerIds = Array.from(new Set(sellerIds)) as string[];
+
+      const orderSellers = uniqueSellerIds
+        .map((id) => sellersById.get(id))
+        .filter(Boolean);
+
+      const total = order.items.reduce(
+        (sum: number, it: any) => sum + (it.part?.price ?? 0) * it.quantity,
+        0
+      );
+
+      return {
+        ...order,
+        total,
+        sellers: orderSellers,
+      };
+    });
 
     return res.json(ordersWithSellerDetails);
   } catch (err) {

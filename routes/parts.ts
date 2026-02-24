@@ -11,7 +11,7 @@ const router = express.Router();
  * - allowed: seller, admin
  */
 router.post("/", authenticateToken, authorizeRoles("seller", "admin"), async (req: AuthRequest, res: Response) => {
-  const { name, description, price, inStock, category, carName, model, year } = req.body;
+  const { name, description, price, inStock, category, carName, model, year, imageUrl } = req.body;
 
   if (!name || price === undefined || !category || !carName || !model || year === undefined) {
     return res.status(400).json({ error: "Missing required fields", message: "Missing required fields" });
@@ -37,6 +37,7 @@ router.post("/", authenticateToken, authorizeRoles("seller", "admin"), async (re
         carName,
         model,
         year: yearNum,
+        imageUrl: imageUrl && typeof imageUrl === "string" ? imageUrl : null,
       },
     });
     return res.status(201).json(created);
@@ -76,7 +77,7 @@ router.put("/:id", authenticateToken, authorizeRoles("seller", "admin"), async (
   const id = Number(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid part id", message: "Invalid part id" });
 
-  const { name, description, price, inStock, category, carName, model, year } = req.body;
+  const { name, description, price, inStock, category, carName, model, year, imageUrl } = req.body;
 
   const priceNum = Number(price);
   const yearNum = Number(year);
@@ -94,18 +95,21 @@ router.put("/:id", authenticateToken, authorizeRoles("seller", "admin"), async (
       return res.status(403).json({ error: "You can only edit your own parts", message: "You can only edit your own parts" });
     }
 
+    const updateData: any = {
+      name,
+      description,
+      price: priceNum,
+      inStock: inStock ?? true,
+      category,
+      carName,
+      model,
+      year: yearNum,
+    };
+    if (imageUrl !== undefined) updateData.imageUrl = imageUrl && typeof imageUrl === "string" ? imageUrl : null;
+
     const updated = await prisma.part.update({
       where: { id },
-      data: {
-        name,
-        description,
-        price: priceNum,
-        inStock: inStock ?? true,
-        category,
-        carName,
-        model,
-        year: yearNum,
-      },
+      data: updateData,
     });
 
     return res.json(updated);

@@ -38,19 +38,29 @@ app.use(
 
 app.use(express.json());
 
-// Routes
-app.use("/api/auth", authRoutes);           
+app.use((req, _res, next) => {
+     console.log(req.method, req.url);
+     next();
+   });
+
+// Routes – mount /api/auth/user before /api/auth so /api/auth/user/me is matched
+app.use("/api/auth/user", authUsers);
+app.use("/api/auth", authRoutes);
 app.use("/api/protected", protectedRoutes);
 app.use("/api/parts", partsRoutes); // ✅ Add parts route
 app.use("/api/seller", sellerRoutes); // ✅ Add parts route
 app.use("/api/admin/users", adminUserRoutes); // Placeholder for admin routes
 app.use("/api/orders", orderRoutes); // Add after auth, parts, etc.
 app.use("/api/admin/orders", adminOrdersRouter);
-app.use("/api/auth/user", authUsers);
 
 // Test default route
 app.get("/", (req, res) => {
   res.send("Car Parts Backend API is running 🚀");
+});
+
+// No-auth health check – open this from your phone browser to confirm the phone can reach this server
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true, backend: "Car Parts", time: new Date().toISOString() });
 });
 
 const PORT = Number(process.env.PORT) || 4000;

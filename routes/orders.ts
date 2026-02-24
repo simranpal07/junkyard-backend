@@ -7,7 +7,7 @@ const router = Router();
 
 // POST /orders - Place a new order
 router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
-  const { items, address, phoneNumber } = req.body;
+  const { items, address, phoneNumber, idempotencyKey } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: "Invalid order items" });
@@ -26,6 +26,24 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: "User not authenticated" });
 
+    let existingOrder = null;
+
+    // If client provided an idempotency key, try to reuse existing order
+    if (idempotencyKey && typeof idempotencyKey === "string") {
+      existingOrder = await prisma.order.findFirst({
+        where: { userId: req.user.id, idempotencyKey },
+        include: {
+          items: {
+            include: { part: true },
+          },
+        },
+      });
+    }
+
+    if (existingOrder) {
+      return res.json({ message: "Order already placed", order: existingOrder });
+    }
+
     // Create a new order
     const newOrder = await prisma.order.create({
       data: {
@@ -33,6 +51,7 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
         status: "Placed",
         address,
         phoneNumber,
+        idempotencyKey: typeof idempotencyKey === "string" ? idempotencyKey : null,
         items: {
           create: items.map((item: any) => ({
             partId: item.partId,
