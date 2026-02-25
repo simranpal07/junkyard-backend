@@ -8,6 +8,7 @@ import adminUserRoutes from "./routes/admin/users"; // ✅ Import seller routes
 import orderRoutes from "./routes/orders"; // ✅ Import order routes
 import adminOrdersRouter from './routes/admin/orders';
 import authUsers from './routes/user';
+import { prisma } from "./lib/prisma";
 
 import cors from "cors";
 
@@ -60,9 +61,20 @@ app.get("/", (req, res) => {
   res.send("Car Parts Backend API is running 🚀");
 });
 
-// No-auth health check – open this from your phone browser to confirm the phone can reach this server
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true, backend: "Car Parts", time: new Date().toISOString() });
+// No-auth health check – also pings DB to warm the connection after Render cold start
+app.get("/api/health", async (_req, res) => {
+  let db = false;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    db = true;
+  } catch {
+    // DB not ready yet (e.g. cold start) – still return 200 so crons don't think we're down
+  }
+  // Show which DB host:port we're using (password redacted) so you can confirm 5432 vs 6543
+  const raw = process.env.DATABASE_URL || "";
+  const match = raw.match(/@([^/]+)\//);
+  const dbHost = match ? match[1] : (raw ? "set" : "missing");
+  res.json({ ok: true, backend: "Car Parts", db, dbHost, time: new Date().toISOString() });
 });
 
 // 404 handler
@@ -81,9 +93,22 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 const PORT = Number(process.env.PORT) || 4000;
+const KEEPALIVE_MS = 5 * 1000; // 5 seconds – Supabase closes idle connections very quickly
+
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
+    // Keep DB connection alive so Supabase doesn't close it after ~10s idle
+    setInterval(async () => {
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+      } catch (e) {
+        // Connection dead – disconnect so next request opens a fresh one
+        try {
+          await prisma.$disconnect();
+        } catch (_) {}
+      }
+    }, KEEPALIVE_MS);
   });
 }
 
