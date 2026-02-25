@@ -6,16 +6,19 @@ import { prisma } from "../lib/prisma";
 const router = Router();
 
 // POST /api/auth/register
-// Note: Since password no longer exists, we just register user info
+// This endpoint is used by the mobile app after Supabase signup
+// to ensure there is a corresponding User row in our DB.
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { name, email, role } = req.body;
+    const { name, email, role, id: supabaseUserId } = req.body;
 
     if (!name || !email || !role) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    if (!["customer", "Seller", "Admin"].includes(role)) {
+    const roleLower = role.toString().toLowerCase();
+    // Only allow customer/seller here - admin users must be created via admin routes
+    if (!["customer", "seller"].includes(roleLower)) {
       return res.status(400).json({ message: "Invalid role" });
     }
 
@@ -24,8 +27,18 @@ router.post("/register", async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Email already registered" });
     }
 
+    // Use Supabase user id when provided so /me lookup by JWT sub works
+    const data: { name: string; email: string; role: string; id?: string } = {
+      name,
+      email,
+      role: roleLower,
+    };
+    if (supabaseUserId && typeof supabaseUserId === "string") {
+      data.id = supabaseUserId;
+    }
+
     const user = await prisma.user.create({
-      data: { name, email, role },
+      data,
       select: { id: true, name: true, email: true, role: true },
     });
 
@@ -37,23 +50,9 @@ router.post("/register", async (req: Request, res: Response) => {
 });
 
 // POST /api/auth/login
-// For now, login will just return user info (no password check)
-router.post("/login", async (req: Request, res: Response) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: "Email is required" });
-
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(400).json({ message: "Invalid email" });
-
-    return res.json({
-      message: "Login successful",
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
-    });
-  } catch (err) {
-    console.error("Login error:", err);
-    return res.status(500).json({ message: "Something went wrong" });
-  }
+// Deprecated: auth is handled by Supabase on the client.
+router.post("/login", (_req: Request, res: Response) => {
+  return res.status(410).json({ message: "This endpoint is deprecated. Use Supabase auth from the client." });
 });
 
 // GET /api/auth/me - Get current user info

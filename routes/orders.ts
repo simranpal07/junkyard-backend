@@ -7,24 +7,49 @@ const router = Router();
 
 // POST /orders - Place a new order
 router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
-  const { items, address, phoneNumber } = req.body;
+  const { items, address, phoneNumber, idempotencyKey } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: "Invalid order items" });
   }
 
-  if (!address || typeof address !== "string") {
+  for (const item of items) {
+    const partId = item?.partId != null ? Number(item.partId) : NaN;
+    const quantity = item?.quantity != null ? Number(item.quantity) : NaN;
+    if (!Number.isInteger(partId) || partId < 1 || !Number.isInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ message: "Each item must have a valid partId and quantity (positive integers)" });
+    }
+  }
+
+  if (!address || typeof address !== "string" || !address.trim()) {
     return res.status(400).json({ message: "Invalid delivery address" });
   }
 
-  // Validate phone number format (e.g., 10 digits for Indian phone numbers)
   const phoneRegex = /^\d{10}$/;
-  if (!phoneRegex.test(phoneNumber)) {
-    return res.status(400).json({ message: "Invalid phone number" });
+  if (!phoneNumber || !phoneRegex.test(String(phoneNumber).trim())) {
+    return res.status(400).json({ message: "Invalid phone number (10 digits required)" });
   }
 
   try {
     if (!req.user) return res.status(401).json({ message: "User not authenticated" });
+
+    let existingOrder = null;
+
+    // If client provided an idempotency key, try to reuse existing order
+    if (idempotencyKey && typeof idempotencyKey === "string") {
+      existingOrder = await prisma.order.findFirst({
+        where: { userId: req.user.id, idempotencyKey },
+        include: {
+          items: {
+            include: { part: true },
+          },
+        },
+      });
+    }
+
+    if (existingOrder) {
+      return res.json({ message: "Order already placed", order: existingOrder });
+    }
 
     // Create a new order
     const newOrder = await prisma.order.create({
@@ -33,6 +58,7 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
         status: "Placed",
         address,
         phoneNumber,
+        idempotencyKey: typeof idempotencyKey === "string" ? idempotencyKey : null,
         items: {
           create: items.map((item: any) => ({
             partId: item.partId,

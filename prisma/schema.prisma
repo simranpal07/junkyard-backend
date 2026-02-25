@@ -26,6 +26,7 @@ model Part {
   name        String
   description String?
   price       Float
+  imageUrl    String?  // optional; uploaded to Supabase Storage, URL stored here
   createdBy   String   // just String is fine
   createdAt   DateTime @default(now())
   inStock     Boolean  @default(true)
@@ -46,6 +47,8 @@ model Order {
   items     OrderItem[]
   address      String?
   phoneNumber  String?
+  /// Client-generated idempotency key to deduplicate order submissions
+  idempotencyKey String? @unique
 }
 
 model OrderItem {
