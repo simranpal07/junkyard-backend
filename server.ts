@@ -98,15 +98,13 @@ const KEEPALIVE_MS = 5 * 1000; // 5 seconds – Supabase closes idle connections
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
-    // Keep DB connection alive so Supabase doesn't close it after ~10s idle
+    // Keep DB connection alive so Supabase doesn't close it; don't disconnect on failure
+    // (disconnecting was closing the socket and causing "socket closed while idle" + P1001 on reconnect)
     setInterval(async () => {
       try {
         await prisma.$queryRaw`SELECT 1`;
-      } catch (e) {
-        // Connection dead – disconnect so next request opens a fresh one
-        try {
-          await prisma.$disconnect();
-        } catch (_) {}
+      } catch (_) {
+        // Connection dead; next request will trigger Prisma to open a new one
       }
     }, KEEPALIVE_MS);
   });
