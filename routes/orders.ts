@@ -13,14 +13,21 @@ router.post("/", authenticateToken, async (req: AuthRequest, res: Response) => {
     return res.status(400).json({ message: "Invalid order items" });
   }
 
-  if (!address || typeof address !== "string") {
+  for (const item of items) {
+    const partId = item?.partId != null ? Number(item.partId) : NaN;
+    const quantity = item?.quantity != null ? Number(item.quantity) : NaN;
+    if (!Number.isInteger(partId) || partId < 1 || !Number.isInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ message: "Each item must have a valid partId and quantity (positive integers)" });
+    }
+  }
+
+  if (!address || typeof address !== "string" || !address.trim()) {
     return res.status(400).json({ message: "Invalid delivery address" });
   }
 
-  // Validate phone number format (e.g., 10 digits for Indian phone numbers)
   const phoneRegex = /^\d{10}$/;
-  if (!phoneRegex.test(phoneNumber)) {
-    return res.status(400).json({ message: "Invalid phone number" });
+  if (!phoneNumber || !phoneRegex.test(String(phoneNumber).trim())) {
+    return res.status(400).json({ message: "Invalid phone number (10 digits required)" });
   }
 
   try {

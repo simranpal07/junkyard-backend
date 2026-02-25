@@ -48,20 +48,82 @@ router.post("/", authenticateToken, authorizeRoles("seller", "admin"), async (re
 });
 
 /**
+ * GET /api/parts/filter-options
+ * Returns distinct carName, model, year for filter dropdowns (public).
+ */
+router.get("/filter-options", async (req: Request, res: Response) => {
+  const { category, carName, model } = req.query;
+
+  try {
+    const makesWhere: any = { carName: { not: "" } };
+    if (category) makesWhere.category = { equals: category as string, mode: "insensitive" };
+
+    const modelsWhere: any = { model: { not: "" } };
+    if (category) modelsWhere.category = { equals: category as string, mode: "insensitive" };
+    if (carName) modelsWhere.carName = { equals: carName as string, mode: "insensitive" };
+
+    const yearsWhere: any = { year: { not: 0 } };
+    if (category) yearsWhere.category = { equals: category as string, mode: "insensitive" };
+    if (carName) yearsWhere.carName = { equals: carName as string, mode: "insensitive" };
+    if (model) yearsWhere.model = { equals: model as string, mode: "insensitive" };
+
+    const [partsForMakes, partsForModels, partsForYears] = await Promise.all([
+      prisma.part.findMany({ select: { carName: true }, where: makesWhere, distinct: ["carName"], orderBy: { carName: "asc" } }),
+      prisma.part.findMany({ select: { model: true }, where: modelsWhere, distinct: ["model"], orderBy: { model: "asc" } }),
+      prisma.part.findMany({ select: { year: true }, where: yearsWhere, distinct: ["year"], orderBy: { year: "desc" } }),
+    ]);
+    const carNames = partsForMakes.map((p) => p.carName).filter(Boolean);
+    const models = partsForModels.map((p) => p.model).filter(Boolean);
+    const years = partsForYears.map((p) => p.year).filter((y) => y > 0);
+    return res.json({ carNames, models, years });
+  } catch (err) {
+    console.error("❌ Failed to fetch filter options:", err);
+    return res.status(500).json({ error: "Failed to fetch filter options", message: "Failed to fetch filter options" });
+  }
+});
+
+/**
  * GET /api/parts (public)
  */
 router.get("/", async (req: Request, res: Response) => {
-  const { carName, model, year, category } = req.query;
+  const { carName, model, year, category, sellerName, q } = req.query;
   const where: any = {};
 
   if (carName) where.carName = { equals: carName as string, mode: "insensitive" };
   if (model) where.model = { equals: model as string, mode: "insensitive" };
-  if (year) where.year = { equals: parseInt(year as string) };
+  const yearNum = year ? parseInt(year as string, 10) : undefined;
+  if (yearNum !== undefined && !isNaN(yearNum)) where.year = yearNum;
   if (category) where.category = { equals: category as string, mode: "insensitive" };
 
+  if (sellerName && typeof sellerName === "string" && sellerName.trim()) {
+    where.user = {
+      name: { contains: sellerName.trim(), mode: "insensitive" },
+    };
+  }
+
+  const qStr = typeof q === "string" ? q.trim() : "";
+  if (qStr) {
+    const qYear = parseInt(qStr, 10);
+    where.OR = [
+      { name: { contains: qStr, mode: "insensitive" } },
+      { description: { contains: qStr, mode: "insensitive" } },
+      { carName: { contains: qStr, mode: "insensitive" } },
+      { model: { contains: qStr, mode: "insensitive" } },
+      { category: { contains: qStr, mode: "insensitive" } },
+      { user: { name: { contains: qStr, mode: "insensitive" } } },
+      ...(isNaN(qYear) ? [] : [{ year: qYear }]),
+    ];
+  }
+
   try {
-    const parts = await prisma.part.findMany({ where, orderBy: { createdAt: "desc" } });
-    return res.json(parts);
+    const parts = await prisma.part.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: { user: { select: { name: true } } },
+    });
+    // Strip user object if you don't want to expose seller name in list (optional)
+    const payload = parts.map(({ user, ...p }) => ({ ...p, sellerName: user?.name ?? null }));
+    return res.json(payload);
   } catch (err) {
     console.error("❌ Failed to fetch parts:", err);
     return res.status(500).json({ error: "Failed to fetch parts", message: "Failed to fetch parts" });
