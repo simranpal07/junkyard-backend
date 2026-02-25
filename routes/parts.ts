@@ -6,6 +6,22 @@ import { prisma } from "../lib/prisma";
 
 const router = express.Router();
 
+/** Retry up to 3 times on DB connection errors (e.g. after Render cold start). */
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const isConnectionError = err?.code === "P1001" || (err?.message && String(err.message).includes("Can't reach database server"));
+      if (!isConnectionError || attempt === maxAttempts) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * POST /api/parts
  * - allowed: seller, admin
@@ -67,11 +83,13 @@ router.get("/filter-options", async (req: Request, res: Response) => {
     if (carName) yearsWhere.carName = { equals: carName as string, mode: "insensitive" };
     if (model) yearsWhere.model = { equals: model as string, mode: "insensitive" };
 
-    const [partsForMakes, partsForModels, partsForYears] = await Promise.all([
-      prisma.part.findMany({ select: { carName: true }, where: makesWhere, distinct: ["carName"], orderBy: { carName: "asc" } }),
-      prisma.part.findMany({ select: { model: true }, where: modelsWhere, distinct: ["model"], orderBy: { model: "asc" } }),
-      prisma.part.findMany({ select: { year: true }, where: yearsWhere, distinct: ["year"], orderBy: { year: "desc" } }),
-    ]);
+    const [partsForMakes, partsForModels, partsForYears] = await withRetry(() =>
+      Promise.all([
+        prisma.part.findMany({ select: { carName: true }, where: makesWhere, distinct: ["carName"], orderBy: { carName: "asc" } }),
+        prisma.part.findMany({ select: { model: true }, where: modelsWhere, distinct: ["model"], orderBy: { model: "asc" } }),
+        prisma.part.findMany({ select: { year: true }, where: yearsWhere, distinct: ["year"], orderBy: { year: "desc" } }),
+      ])
+    );
     const carNames = partsForMakes.map((p) => p.carName).filter(Boolean);
     const models = partsForModels.map((p) => p.model).filter(Boolean);
     const years = partsForYears.map((p) => p.year).filter((y) => y > 0);
@@ -116,17 +134,24 @@ router.get("/", async (req: Request, res: Response) => {
   }
 
   try {
-    const parts = await prisma.part.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: { user: { select: { name: true } } },
-    });
+    const parts = await withRetry(() =>
+      prisma.part.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: { user: { select: { name: true } } },
+      })
+    );
     // Strip user object if you don't want to expose seller name in list (optional)
     const payload = parts.map(({ user, ...p }) => ({ ...p, sellerName: user?.name ?? null }));
     return res.json(payload);
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Failed to fetch parts:", err);
-    return res.status(500).json({ error: "Failed to fetch parts", message: "Failed to fetch parts" });
+    const detail = err?.message || err?.meta?.message || String(err);
+    return res.status(500).json({
+      error: "Failed to fetch parts",
+      message: "Failed to fetch parts",
+      detail, // actual error so you can debug (e.g. P1001, connection refused)
+    });
   }
 });
 
